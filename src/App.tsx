@@ -52,7 +52,7 @@ function makeInitials(name = '') {
 }
 
 function conversationSortTime(item: Conversation) {
-  return item.lastMessage?.createTime || 0
+  return item.lastMessage?.createTime || item.updateTime || 0
 }
 
 function sortConversations(list: Conversation[]) {
@@ -60,14 +60,17 @@ function sortConversations(list: Conversation[]) {
 }
 
 function mergeConversation(existing: Conversation | undefined, incoming: Conversation) {
-  const lastMessage = incoming.lastMessage?.createTime
+  const hasFreshLastMessage = Boolean(incoming.lastMessage?.createTime)
+  const lastMessage = hasFreshLastMessage
     ? incoming.lastMessage
     : existing?.lastMessage || incoming.lastMessage
   return {
     ...existing,
     ...incoming,
     lastMessage,
-    updateTime: lastMessage?.createTime || 0
+    updateTime: hasFreshLastMessage
+      ? incoming.lastMessage?.createTime
+      : existing?.updateTime || incoming.updateTime || 0
   }
 }
 
@@ -157,6 +160,37 @@ export default function App() {
 
   const updateStatus = (patch: Partial<RuntimeStatus>) => setStatus((old) => ({ ...old, ...patch }))
 
+  function updateConversationLastMessages(incoming: ChatMessage[]) {
+    const normalized = incoming
+      .map((item) => ({
+        ...item,
+        conversationId: item.conversationId || activeConversationIdRef.current,
+        createTime: item.createTime || Date.now()
+      }))
+      .filter((item) => item.conversationId)
+
+    if (normalized.length === 0) return
+
+    setConversations((old) => {
+      const byId = new Map(old.map((item) => [item.conversationId, item]))
+      normalized.forEach((message) => {
+        const conversationId = message.conversationId!
+        const existing = byId.get(conversationId)
+        const messageTime = message.createTime || 0
+        if (messageTime < conversationSortTime(existing || { conversationId })) return
+        byId.set(conversationId, {
+          ...existing,
+          conversationId,
+          name: existing?.name || getPeerFromConversationId(conversationId),
+          unreadCount: conversationId === activeConversationIdRef.current ? 0 : existing?.unreadCount,
+          lastMessage: message,
+          updateTime: messageTime
+        })
+      })
+      return sortConversations(Array.from(byId.values()))
+    })
+  }
+
   async function refreshConversations(selectFirst = false) {
     const list: Conversation[] = await fetchConversations()
     setConversations((old) => {
@@ -179,6 +213,7 @@ export default function App() {
       await loginByStaticToken(loginForm, {
         onStatus: updateStatus,
         onMessage: (incoming) => {
+          updateConversationLastMessages(incoming)
           const currentId = activeConversationIdRef.current
           const currentMessages = currentId
             ? incoming.filter((item) => !item.conversationId || item.conversationId === currentId)
@@ -266,7 +301,9 @@ export default function App() {
     setMessages((old) => [...old, optimistic])
     try {
       const sent = await sendTextMessage(activeConversationId, text)
-      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? sent : item))
+      const sentMessage = { ...sent, conversationId: activeConversationId, createTime: sent.createTime || Date.now() }
+      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? sentMessage : item))
+      updateConversationLastMessages([sentMessage])
       await refreshConversations(false)
     } catch (err: any) {
       setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? { ...item, sending: false, failed: true } : item))
@@ -297,7 +334,9 @@ export default function App() {
       const sent = await sendMediaMessage(activeConversationId, file, kind, (percentage) => {
         setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? { ...item, uploadProgress: Math.round(percentage * 100) } : item))
       })
-      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? sent : item))
+      const sentMessage = { ...sent, conversationId: activeConversationId, createTime: sent.createTime || Date.now() }
+      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? sentMessage : item))
+      updateConversationLastMessages([sentMessage])
       await refreshConversations(false)
     } catch (err: any) {
       setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? { ...item, sending: false, failed: true } : item))

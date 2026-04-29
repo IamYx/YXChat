@@ -156,6 +156,10 @@ export function getConversationTitle(conversation: Conversation) {
   return conversation.name || getPeerFromConversationId(conversation.conversationId) || conversation.conversationId
 }
 
+function pickMessageTime(msg: any) {
+  return msg?.createTime || msg?.time || msg?.timestamp || msg?.messageTime || msg?.serverTime || msg?.sendTime
+}
+
 export function normalizeMessage(msg: any): ChatMessage {
   const attachment = msg?.attachment || msg?.attach || msg?.body?.attachment
   const messageType = msg?.messageType ?? msg?.type
@@ -176,14 +180,19 @@ export function normalizeMessage(msg: any): ChatMessage {
     fileSize: attachment?.size,
     imageWidth: attachment?.width,
     imageHeight: attachment?.height,
-    createTime: msg?.createTime || msg?.time || msg?.timestamp,
+    createTime: pickMessageTime(msg),
     sending: msg?.sending,
     failed: msg?.failed
   }
 }
 
 export function normalizeConversation(item: any): Conversation {
-  const lastMessage = item?.lastMessage ? normalizeMessage(item.lastMessage) : undefined
+  const rawLastMessage = item?.lastMessage || item?.lastMessageInfo || item?.message
+  const normalizedLastMessage = rawLastMessage ? normalizeMessage(rawLastMessage) : undefined
+  const lastMessageTime = normalizedLastMessage?.createTime || item?.lastMessageTime || item?.lastMessageCreateTime || rawLastMessage?.createTime || rawLastMessage?.time || 0
+  const lastMessage = normalizedLastMessage
+    ? { ...normalizedLastMessage, createTime: normalizedLastMessage.createTime || lastMessageTime }
+    : undefined
   const peer = getPeerFromConversationId(item?.conversationId || '')
   return {
     conversationId: item?.conversationId || '',
@@ -191,7 +200,7 @@ export function normalizeConversation(item: any): Conversation {
     avatar: item?.avatar,
     unreadCount: item?.unreadCount || 0,
     lastMessage,
-    updateTime: lastMessage?.createTime || 0,
+    updateTime: lastMessageTime || 0,
     raw: item
   }
 }
