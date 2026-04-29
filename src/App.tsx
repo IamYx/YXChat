@@ -1,19 +1,25 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChatMessage,
   Contact,
   Conversation,
+  DEFAULT_SDK_VERSION,
   LoginForm,
   RuntimeStatus,
+  SDK_VERSION_OPTIONS,
   fetchContacts,
   fetchConversations,
   fetchMessages,
+  formatFileSize,
   getConversationTitle,
   getCurrentAccount,
+  getLoadedSdkSource,
+  getLoadedSdkVersion,
   getPeerFromConversationId,
   loginByStaticToken,
   logout,
   makeP2PConversationId,
+  sendMediaMessage,
   sendTextMessage
 } from './nimClient'
 import './styles.css'
@@ -34,6 +40,8 @@ function formatTime(time?: number) {
 
 function messagePreview(message?: ChatMessage) {
   if (!message) return '暂无消息'
+  if (message.messageKind === 'image') return '[图片]'
+  if (message.messageKind === 'file') return `[文件] ${message.fileName || ''}`.trim()
   if (message.text) return message.text
   return `消息类型：${message.messageType ?? '未知'}`
 }
@@ -42,8 +50,33 @@ function makeInitials(name = '') {
   return name.slice(0, 2).toUpperCase() || 'YX'
 }
 
+function renderMessageBody(msg: ChatMessage) {
+  if (msg.messageKind === 'image') {
+    return (
+      <div className="mediaMessage">
+        {msg.fileUrl ? <img src={msg.fileUrl} alt={msg.fileName || 'image'} /> : <p>[图片消息]</p>}
+        {msg.fileName && <small>{msg.fileName}</small>}
+      </div>
+    )
+  }
+
+  if (msg.messageKind === 'file') {
+    return (
+      <a className="fileMessage" href={msg.fileUrl || '#'} target="_blank" rel="noreferrer" onClick={(event) => { if (!msg.fileUrl) event.preventDefault() }}>
+        <span className="fileIcon">FILE</span>
+        <span>
+          <strong>{msg.fileName || '文件消息'}</strong>
+          <em>{formatFileSize(msg.fileSize)}</em>
+        </span>
+      </a>
+    )
+  }
+
+  return <p>{msg.text || `[${msg.messageType || '非文本消息'}]`}</p>
+}
+
 export default function App() {
-  const [form, setForm] = useState<LoginForm>({ appkey: '', account: '', token: '' })
+  const [form, setForm] = useState<LoginForm>({ appkey: '', account: '', token: '', sdkVersion: DEFAULT_SDK_VERSION })
   const [loggedIn, setLoggedIn] = useState(false)
   const [status, setStatus] = useState<RuntimeStatus>(emptyStatus)
   const [tab, setTab] = useState<Tab>('conversations')
@@ -55,6 +88,9 @@ export default function App() {
   const [draft, setDraft] = useState('')
   const [startChatAccid, setStartChatAccid] = useState('')
   const [notice, setNotice] = useState('')
+  const [sdkInfo, setSdkInfo] = useState({ version: DEFAULT_SDK_VERSION, source: '' })
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -62,7 +98,12 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        setForm((old) => ({ ...old, appkey: parsed.appkey || '', account: parsed.account || '' }))
+        setForm((old) => ({
+          ...old,
+          appkey: parsed.appkey || '',
+          account: parsed.account || '',
+          sdkVersion: parsed.sdkVersion || DEFAULT_SDK_VERSION
+        }))
       } catch {
         // ignore
       }
@@ -98,7 +139,7 @@ export default function App() {
   async function handleLogin(event: FormEvent) {
     event.preventDefault()
     setLoading(true)
-    setNotice('正在初始化 IMSDK 并登录...')
+    setNotice(`正在加载 NIMSDK ${form.sdkVersion || DEFAULT_SDK_VERSION} 并登录...`)
     try {
       await loginByStaticToken(form, {
         onStatus: updateStatus,
@@ -116,8 +157,10 @@ export default function App() {
           })
         }
       })
+      const version = getLoadedSdkVersion() || form.sdkVersion
+      setSdkInfo({ version, source: getLoadedSdkSource() })
       setLoggedIn(true)
-      setNotice('登录成功。已开始同步会话、消息和好友关系。')
+      setNotice(`登录成功。NIMSDK ${version} 已加载，开始同步会话、消息和好友关系。`)
       await Promise.all([refreshConversations(true), refreshContacts()])
     } catch (err: any) {
       setNotice(err?.message || `登录失败：${err?.code || '未知错误'}`)
@@ -167,6 +210,7 @@ export default function App() {
       messageClientId: `local-${Date.now()}`,
       senderId: getCurrentAccount(),
       text,
+      messageKind: 'text',
       createTime: Date.now(),
       sending: true
     }
@@ -181,17 +225,50 @@ export default function App() {
     }
   }
 
+  async function handleMediaSelected(event: ChangeEvent<HTMLInputElement>, kind: 'image' | 'file') {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !activeConversationId) return
+
+    const localUrl = URL.createObjectURL(file)
+    const optimistic: ChatMessage = {
+      messageClientId: `media-${Date.now()}`,
+      senderId: getCurrentAccount(),
+      text: kind === 'image' ? '[图片]' : `[文件] ${file.name}`,
+      messageKind: kind,
+      fileName: file.name,
+      fileSize: file.size,
+      fileUrl: localUrl,
+      createTime: Date.now(),
+      uploadProgress: 0,
+      sending: true
+    }
+    setMessages((old) => [...old, optimistic])
+    try {
+      const sent = await sendMediaMessage(activeConversationId, file, kind, (percentage) => {
+        setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? { ...item, uploadProgress: Math.round(percentage * 100) } : item))
+      })
+      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? sent : item))
+      await refreshConversations(false)
+    } catch (err: any) {
+      setMessages((old) => old.map((item) => item.messageClientId === optimistic.messageClientId ? { ...item, sending: false, failed: true } : item))
+      setNotice(`媒体消息发送失败：${err?.code || err?.message || '未知错误'}`)
+    } finally {
+      URL.revokeObjectURL(localUrl)
+    }
+  }
+
   return (
     <main className="shell">
       <section className="hero">
         <div>
           <p className="eyebrow">YunXin Web IMSDK</p>
           <h1>YXChat</h1>
-          <p className="heroText">纯前端 IM 示例：AppKey + accid + token 登录，包含会话、聊天、通讯录和个人中心，不依赖业务服务端 API。</p>
+          <p className="heroText">纯前端 IM 示例：支持选择 NIMSDK 版本、静态 Token 登录、文本/图片/文件消息收发，不依赖业务服务端 API。</p>
         </div>
         <div className="statusGrid">
+          <StatusPill label="SDK" value={sdkInfo.version} />
           <StatusPill label="登录" value={status.login} />
-          <StatusPill label="连接" value={status.connect} />
           <StatusPill label="同步" value={status.sync} />
         </div>
       </section>
@@ -201,9 +278,16 @@ export default function App() {
           <div>
             <p className="eyebrow">Static Token Auth</p>
             <h2>账号密码登录</h2>
-            <p>这里的“密码”即云信 IM token。账号创建和 token 获取请在云信控制台或你已有后台完成，本页面不会调用任何服务端 API。</p>
+            <p>这里的“密码”即云信 IM token。当前默认 NIMSDK 版本为 <b>{DEFAULT_SDK_VERSION}</b>，也可以在登录前选择历史版本或输入自定义版本号。</p>
           </div>
           <form className="loginForm" onSubmit={handleLogin}>
+            <label>
+              NIMSDK 版本
+              <input list="sdkVersions" value={form.sdkVersion} onChange={(e) => setForm({ ...form, sdkVersion: e.target.value })} placeholder={DEFAULT_SDK_VERSION} />
+              <datalist id="sdkVersions">
+                {SDK_VERSION_OPTIONS.map((version) => <option value={version} key={version} />)}
+              </datalist>
+            </label>
             <label>
               AppKey
               <input value={form.appkey} onChange={(e) => setForm({ ...form, appkey: e.target.value })} placeholder="请输入云信 AppKey" />
@@ -227,7 +311,7 @@ export default function App() {
               <div className="avatar">{makeInitials(getCurrentAccount())}</div>
               <div>
                 <strong>{getCurrentAccount()}</strong>
-                <span>IM 在线工作台</span>
+                <span>NIMSDK {sdkInfo.version}</span>
               </div>
             </div>
             <nav>
@@ -290,10 +374,10 @@ export default function App() {
                 <div className="profileStats">
                   <span><b>{conversations.length}</b> 会话</span>
                   <span><b>{contacts.length}</b> 好友</span>
-                  <span><b>{status.login}</b> 状态</span>
+                  <span><b>{sdkInfo.version}</b> SDK</span>
                 </div>
                 <button className="ghost" onClick={handleLogout} disabled={loading}>退出登录</button>
-                <p className="hint">安全提示：Demo 仅用于前端集成验证。生产环境不要把 App Secret 放到前端，也不要在前端生成动态 token。</p>
+                <p className="hint">SDK 来源：{sdkInfo.source || '未记录'}。生产环境不要把 App Secret 放到前端，也不要在前端生成动态 token。</p>
               </div>
             )}
           </section>
@@ -314,9 +398,9 @@ export default function App() {
                     const mine = msg.senderId === getCurrentAccount()
                     return (
                       <div className={`bubbleRow ${mine ? 'mine' : ''}`} key={msg.messageClientId || msg.messageServerId || index}>
-                        <div className="bubble">
-                          <p>{msg.text || `[${msg.messageType || '非文本消息'}]`}</p>
-                          <span>{formatTime(msg.createTime)} {msg.sending ? '发送中' : msg.failed ? '失败' : ''}</span>
+                        <div className={`bubble ${msg.messageKind === 'image' ? 'imageBubble' : ''}`}>
+                          {renderMessageBody(msg)}
+                          <span>{formatTime(msg.createTime)} {msg.uploadProgress !== undefined && msg.sending ? `上传 ${msg.uploadProgress}%` : msg.sending ? '发送中' : msg.failed ? '失败' : ''}</span>
                         </div>
                       </div>
                     )
@@ -325,7 +409,11 @@ export default function App() {
                 </div>
                 <form className="composer" onSubmit={handleSend}>
                   <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="输入文本消息，回车发送" />
-                  <button>发送</button>
+                  <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => handleMediaSelected(event, 'image')} />
+                  <input ref={fileInputRef} type="file" hidden onChange={(event) => handleMediaSelected(event, 'file')} />
+                  <button type="button" className="toolButton" onClick={() => imageInputRef.current?.click()}>图片</button>
+                  <button type="button" className="toolButton" onClick={() => fileInputRef.current?.click()}>文件</button>
+                  <button type="submit">发送</button>
                 </form>
               </>
             ) : (

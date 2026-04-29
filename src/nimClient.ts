@@ -1,9 +1,11 @@
-import NIM from 'nim-web-sdk-ng'
+export const DEFAULT_SDK_VERSION = '10.9.81'
+export const SDK_VERSION_OPTIONS = ['10.9.81', '10.9.80', '10.9.70', '10.9.0', '10.8.30', '10.8.0']
 
 export type LoginForm = {
   appkey: string
   account: string
   token: string
+  sdkVersion: string
 }
 
 export type RuntimeStatus = {
@@ -19,7 +21,15 @@ export type ChatMessage = {
   receiverId?: string
   text?: string
   messageType?: number | string
+  messageKind: 'text' | 'image' | 'file' | 'other'
+  attachment?: any
+  fileName?: string
+  fileUrl?: string
+  fileSize?: number
+  imageWidth?: number
+  imageHeight?: number
   createTime?: number
+  uploadProgress?: number
   sending?: boolean
   failed?: boolean
 }
@@ -44,6 +54,63 @@ export type Contact = {
 
 let nim: any = null
 let currentAccount = ''
+let loadedSdkVersion = ''
+let loadedSdkSource = ''
+
+declare global {
+  interface Window {
+    NIM?: any
+  }
+}
+
+function sdkUrls(version: string) {
+  const safeVersion = version.trim() || DEFAULT_SDK_VERSION
+  return [
+    `https://unpkg.com/nim-web-sdk-ng@${safeVersion}/dist/v2/NIM_BROWSER_SDK.js`,
+    `https://cdn.jsdelivr.net/npm/nim-web-sdk-ng@${safeVersion}/dist/v2/NIM_BROWSER_SDK.js`
+  ]
+}
+
+async function loadScript(url: string) {
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = url
+    script.async = true
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error(`SDK 加载失败：${url}`))
+    document.head.appendChild(script)
+  })
+}
+
+export async function loadNimSdk(version = DEFAULT_SDK_VERSION) {
+  const targetVersion = version.trim() || DEFAULT_SDK_VERSION
+  if (loadedSdkVersion === targetVersion && window.NIM?.default) return window.NIM.default
+
+  window.NIM = undefined
+  let lastError: unknown
+  for (const url of sdkUrls(targetVersion)) {
+    try {
+      await loadScript(url)
+      const sdk = window.NIM?.default || window.NIM
+      if (sdk?.getInstance) {
+        loadedSdkVersion = sdk.sdkVersion || targetVersion
+        loadedSdkSource = url
+        return sdk
+      }
+    } catch (err) {
+      lastError = err
+    }
+  }
+  throw lastError || new Error('无法加载 NIMSDK')
+}
+
+export function getLoadedSdkVersion() {
+  return loadedSdkVersion
+}
+
+export function getLoadedSdkSource() {
+  return loadedSdkSource
+}
 
 const tryCall = async <T>(label: string, fn: () => Promise<T> | T): Promise<T | null> => {
   try {
@@ -76,13 +143,24 @@ export function getConversationTitle(conversation: Conversation) {
 }
 
 export function normalizeMessage(msg: any): ChatMessage {
+  const attachment = msg?.attachment || msg?.attach || msg?.body?.attachment
+  const messageType = msg?.messageType ?? msg?.type
+  const isImage = messageType === 1 || Boolean(attachment?.width && attachment?.url)
+  const isFile = messageType === 6 || Boolean(attachment?.url && attachment?.name && !isImage)
   return {
     messageClientId: msg?.messageClientId || msg?.clientId || msg?.id,
     messageServerId: msg?.messageServerId || msg?.serverId,
     senderId: msg?.senderId || msg?.from || msg?.fromAccount,
     receiverId: msg?.receiverId || msg?.to || msg?.toAccount,
-    text: msg?.text || msg?.body?.text || msg?.attachment?.text || '',
-    messageType: msg?.messageType ?? msg?.type,
+    text: msg?.text || msg?.body?.text || attachment?.text || '',
+    messageType,
+    messageKind: isImage ? 'image' : isFile ? 'file' : (messageType === 0 || msg?.text ? 'text' : 'other'),
+    attachment,
+    fileName: attachment?.name,
+    fileUrl: attachment?.url,
+    fileSize: attachment?.size,
+    imageWidth: attachment?.width,
+    imageHeight: attachment?.height,
     createTime: msg?.createTime || msg?.time || Date.now(),
     sending: msg?.sending,
     failed: msg?.failed
@@ -122,6 +200,7 @@ export async function loginByStaticToken(form: LoginForm, callbacks: {
   currentAccount = form.account.trim()
   const appkey = form.appkey.trim()
   const token = form.token.trim()
+  const NIM = await loadNimSdk(form.sdkVersion)
 
   if (!appkey || !currentAccount || !token) {
     throw new Error('AppKey、accid、token 都不能为空')
@@ -143,7 +222,7 @@ export async function loginByStaticToken(form: LoginForm, callbacks: {
     retryCount: 3
   })
 
-  localStorage.setItem('yxchat:lastLogin', JSON.stringify({ appkey, account: currentAccount }))
+  localStorage.setItem('yxchat:lastLogin', JSON.stringify({ appkey, account: currentAccount, sdkVersion: form.sdkVersion || loadedSdkVersion }))
   callbacks.onStatus?.({ login: '已登录' })
   return nim
 }
@@ -228,6 +307,30 @@ export async function sendTextMessage(conversationId: string, text: string) {
   const message = nim.V2NIMMessageCreator.createTextMessage(text)
   const result = await nim.V2NIMMessageService.sendMessage(message, conversationId)
   return normalizeMessage(result?.message || result || message)
+}
+
+export async function sendMediaMessage(
+  conversationId: string,
+  file: File,
+  kind: 'image' | 'file',
+  onProgress?: (percentage: number) => void
+) {
+  if (!nim) throw new Error('请先登录')
+  const creator = nim.V2NIMMessageCreator
+  const message = kind === 'image'
+    ? creator.createImageMessage(file, file.name)
+    : creator.createFileMessage(file, file.name)
+  const result = await nim.V2NIMMessageService.sendMessage(message, conversationId, {}, (percentage: number) => {
+    onProgress?.(percentage)
+  })
+  return normalizeMessage(result?.message || result || message)
+}
+
+export function formatFileSize(size?: number) {
+  if (!size) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
 export async function fetchContacts() {
