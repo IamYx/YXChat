@@ -235,7 +235,7 @@ export async function loginByStaticToken(form: LoginForm, callbacks: {
     retryCount: 3
   })
 
-  localStorage.setItem('yxchat:lastLogin', JSON.stringify({ appkey, account: currentAccount, sdkVersion: form.sdkVersion || loadedSdkVersion }))
+  localStorage.setItem('yxchat:lastLogin', JSON.stringify({ appkey, account: currentAccount, token, sdkVersion: form.sdkVersion || loadedSdkVersion }))
   callbacks.onStatus?.({ login: '已登录' })
   return nim
 }

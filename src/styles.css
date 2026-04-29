@@ -298,6 +298,13 @@ nav button.active, nav button:hover { color: #fff; background: rgba(255,255,255,
   z-index: 2;
 }
 .chatHeader strong, .chatHeader span { display: block; }
+.mobileBack {
+  display: none;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--ink);
+  background: #eef2f7;
+}
 .chatHeader span { color: #718096; font-size: 13px; margin-top: 3px; }
 
 .messages {
@@ -442,14 +449,88 @@ nav button.active, nav button:hover { color: #fff; background: rgba(255,255,255,
 }
 
 @media (max-width: 860px) {
-  .shell { width: min(100% - 18px, 720px); padding: 12px 0; }
-  .statusGrid { grid-template-columns: 1fr; }
-  .loginCard { grid-template-columns: 1fr; padding: 22px; }
-  .appFrame { height: auto; min-height: 0; grid-template-columns: 1fr; overflow: visible; }
-  .sidebar { overflow: visible; }
-  nav { grid-template-columns: repeat(3, 1fr); }
-  nav button { text-align: center; }
-  .panelList { height: 360px; border-right: none; }
-  .chatPanel { height: 560px; }
-  .heroText { font-size: 13px; }
+  body { overflow: hidden; }
+  .shell {
+    width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
+    padding: 8px;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .hero {
+    min-height: 0;
+    padding: 10px 12px;
+    border-radius: 18px;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  h1 { font-size: 28px; }
+  .heroText { display: none; }
+  .eyebrow { font-size: 10px; margin-bottom: 2px; }
+  .statusGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .statusPill { padding: 7px 8px; border-radius: 12px; }
+  .statusPill span { font-size: 10px; }
+  .statusPill strong { font-size: 11px; }
+  .loginCard {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 12px;
+    padding: 18px;
+    border-radius: 22px;
+    overflow-y: auto;
+  }
+  .loginCard h2 { font-size: 28px; }
+  .loginCard p { font-size: 14px; }
+  .loginForm { padding: 18px; border-radius: 20px; }
+  input { padding: 12px 13px; }
+  .appFrame {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    border-radius: 22px;
+  }
+  .sidebar {
+    padding: 10px;
+    gap: 10px;
+    overflow: visible;
+  }
+  .profileMini { display: none; }
+  nav { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  nav button { text-align: center; padding: 10px 8px; border-radius: 12px; font-size: 13px; }
+  .quickStart { margin-top: 0; grid-template-columns: 1fr auto; }
+  .quickStart input { min-width: 0; }
+  .quickStart button { padding: 10px 12px; white-space: nowrap; }
+  .panelList,
+  .chatPanel {
+    height: auto;
+    min-height: 0;
+    border-right: none;
+  }
+  .chatPanel { display: none; }
+  .appFrame.hasActiveChat .panelList { display: none; }
+  .appFrame.hasActiveChat .chatPanel { display: flex; }
+  .panelHeader { padding: 14px; }
+  .panelHeader h2 { font-size: 21px; }
+  .list { padding: 8px; }
+  .listItem { padding: 11px; border-radius: 16px; }
+  .chatHeader { padding: 12px; }
+  .mobileBack { display: block; }
+  .messages { padding: 12px; }
+  .bubble { max-width: 86%; }
+  .mediaMessage img { max-width: min(260px, 100%); max-height: 220px; }
+  .composer {
+    padding: 10px;
+    gap: 7px;
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+  }
+  .composer input { min-width: 0; }
+  .composer button { min-width: 0; padding: 10px 11px; }
+  .toast { top: 10px; right: 10px; left: 10px; max-width: none; }
 }

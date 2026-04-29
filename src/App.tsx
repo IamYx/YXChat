@@ -98,12 +98,16 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        setForm((old) => ({
-          ...old,
+        const savedForm = {
           appkey: parsed.appkey || '',
           account: parsed.account || '',
+          token: parsed.token || '',
           sdkVersion: parsed.sdkVersion || DEFAULT_SDK_VERSION
-        }))
+        }
+        setForm((old) => ({ ...old, ...savedForm }))
+        if (savedForm.appkey && savedForm.account && savedForm.token) {
+          void doLogin(savedForm, true)
+        }
       } catch {
         // ignore
       }
@@ -142,12 +146,11 @@ export default function App() {
     setContacts(await fetchContacts())
   }
 
-  async function handleLogin(event: FormEvent) {
-    event.preventDefault()
+  async function doLogin(loginForm: LoginForm, silent = false) {
     setLoading(true)
-    setNotice(`正在加载 NIMSDK ${form.sdkVersion || DEFAULT_SDK_VERSION} 并登录...`)
+    setNotice(silent ? `正在恢复登录 NIMSDK ${loginForm.sdkVersion || DEFAULT_SDK_VERSION}...` : `正在加载 NIMSDK ${loginForm.sdkVersion || DEFAULT_SDK_VERSION} 并登录...`)
     try {
-      await loginByStaticToken(form, {
+      await loginByStaticToken(loginForm, {
         onStatus: updateStatus,
         onMessage: (incoming, conversationId) => {
           if (!conversationId || conversationId === activeConversationId) {
@@ -163,7 +166,7 @@ export default function App() {
           })
         }
       })
-      const version = getLoadedSdkVersion() || form.sdkVersion
+      const version = getLoadedSdkVersion() || loginForm.sdkVersion
       setSdkInfo({ version, source: getLoadedSdkSource() })
       setLoggedIn(true)
       setNotice('')
@@ -176,9 +179,15 @@ export default function App() {
     }
   }
 
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault()
+    await doLogin(form)
+  }
+
   async function handleLogout() {
     setLoading(true)
     await logout()
+    localStorage.removeItem('yxchat:lastLogin')
     setLoggedIn(false)
     setStatus(emptyStatus)
     setConversations([])
@@ -311,7 +320,7 @@ export default function App() {
           </form>
         </section>
       ) : (
-        <section className="appFrame">
+        <section className={`appFrame ${activeConversation ? 'hasActiveChat' : ''}`}>
           <aside className="sidebar">
             <div className="profileMini">
               <div className="avatar">{makeInitials(getCurrentAccount())}</div>
@@ -392,6 +401,7 @@ export default function App() {
             {activeConversation ? (
               <>
                 <header className="chatHeader">
+                  <button className="mobileBack" onClick={() => setActiveConversationId('')}>返回</button>
                   <div className="avatar small">{makeInitials(getConversationTitle(activeConversation))}</div>
                   <div>
                     <strong>{getConversationTitle(activeConversation)}</strong>
