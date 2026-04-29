@@ -15,6 +15,7 @@ export type RuntimeStatus = {
 }
 
 export type ChatMessage = {
+  conversationId?: string
   messageClientId?: string
   messageServerId?: string
   senderId?: string
@@ -161,6 +162,7 @@ export function normalizeMessage(msg: any): ChatMessage {
   const isImage = messageType === 1 || Boolean(attachment?.width && attachment?.url)
   const isFile = messageType === 6 || Boolean(attachment?.url && attachment?.name && !isImage)
   return {
+    conversationId: msg?.conversationId,
     messageClientId: msg?.messageClientId || msg?.clientId || msg?.id,
     messageServerId: msg?.messageServerId || msg?.serverId,
     senderId: msg?.senderId || msg?.from || msg?.fromAccount,
@@ -313,6 +315,15 @@ export async function fetchMessages(conversationId: string) {
   })
   const normalized: ChatMessage[] = (res || []).map(normalizeMessage)
   return normalized.sort((a: ChatMessage, b: ChatMessage) => (a.createTime || 0) - (b.createTime || 0))
+}
+
+export async function markConversationRead(conversationId: string) {
+  if (!nim || !conversationId) return
+  const services = [nim.V2NIMConversationService, nim.V2NIMLocalConversationService].filter(Boolean)
+  for (const service of services) {
+    await tryCall('mark conversation read', () => service.markConversationRead?.(conversationId))
+    await tryCall('clear unread count by id', () => service.clearUnreadCountByIds?.([conversationId]))
+  }
 }
 
 export async function sendTextMessage(conversationId: string, text: string) {

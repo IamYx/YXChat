@@ -19,6 +19,7 @@ import {
   loginByStaticToken,
   logout,
   makeP2PConversationId,
+  markConversationRead,
   sendMediaMessage,
   sendTextMessage
 } from './nimClient'
@@ -92,6 +93,7 @@ export default function App() {
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const activeConversationIdRef = useRef('')
 
   useEffect(() => {
     const saved = localStorage.getItem('yxchat:lastLogin')
@@ -113,6 +115,10 @@ export default function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId
+  }, [activeConversationId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -152,11 +158,17 @@ export default function App() {
     try {
       await loginByStaticToken(loginForm, {
         onStatus: updateStatus,
-        onMessage: (incoming, conversationId) => {
-          if (!conversationId || conversationId === activeConversationId) {
-            setMessages((old) => [...old, ...incoming])
+        onMessage: (incoming) => {
+          const currentId = activeConversationIdRef.current
+          const currentMessages = currentId
+            ? incoming.filter((item) => !item.conversationId || item.conversationId === currentId)
+            : []
+          if (currentId && currentMessages.length > 0) {
+            setMessages((old) => [...old, ...currentMessages])
+            void markConversationRead(currentId).then(() => refreshConversations(false))
+          } else {
+            refreshConversations(false)
           }
-          refreshConversations(false)
         },
         onConversationChanged: (changed) => {
           setConversations((old) => {
@@ -202,6 +214,8 @@ export default function App() {
     setActiveConversationId(conversationId)
     setTab('conversations')
     setMessages(await fetchMessages(conversationId))
+    await markConversationRead(conversationId)
+    await refreshConversations(false)
   }
 
   async function startP2PChat(accountId: string) {
