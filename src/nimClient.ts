@@ -176,7 +176,7 @@ export function normalizeMessage(msg: any): ChatMessage {
     fileSize: attachment?.size,
     imageWidth: attachment?.width,
     imageHeight: attachment?.height,
-    createTime: msg?.createTime || msg?.time || Date.now(),
+    createTime: msg?.createTime || msg?.time || msg?.timestamp,
     sending: msg?.sending,
     failed: msg?.failed
   }

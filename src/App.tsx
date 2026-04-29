@@ -52,7 +52,7 @@ function makeInitials(name = '') {
 }
 
 function conversationSortTime(item: Conversation) {
-  return item.lastMessage?.createTime || item.updateTime || 0
+  return item.lastMessage?.createTime || 0
 }
 
 function sortConversations(list: Conversation[]) {
@@ -60,12 +60,14 @@ function sortConversations(list: Conversation[]) {
 }
 
 function mergeConversation(existing: Conversation | undefined, incoming: Conversation) {
-  const lastMessage = incoming.lastMessage || existing?.lastMessage
+  const lastMessage = incoming.lastMessage?.createTime
+    ? incoming.lastMessage
+    : existing?.lastMessage || incoming.lastMessage
   return {
     ...existing,
     ...incoming,
     lastMessage,
-    updateTime: lastMessage?.createTime || incoming.updateTime || existing?.updateTime || 0
+    updateTime: lastMessage?.createTime || 0
   }
 }
 
