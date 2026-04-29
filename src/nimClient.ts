@@ -191,7 +191,7 @@ export function normalizeConversation(item: any): Conversation {
     avatar: item?.avatar,
     unreadCount: item?.unreadCount || 0,
     lastMessage,
-    updateTime: item?.updateTime || item?.sortOrder || lastMessage?.createTime || Date.now(),
+    updateTime: lastMessage?.createTime || 0,
     raw: item
   }
 }
@@ -300,7 +300,7 @@ export async function fetchConversations() {
     return Array.isArray(res) ? res : res?.conversationList || res?.list || []
   }) || []
   const normalized: Conversation[] = source.map(normalizeConversation)
-  return normalized.sort((a: Conversation, b: Conversation) => (b.updateTime || 0) - (a.updateTime || 0))
+  return normalized.sort((a: Conversation, b: Conversation) => (b.lastMessage?.createTime || 0) - (a.lastMessage?.createTime || 0))
 }
 
 export async function fetchMessages(conversationId: string) {

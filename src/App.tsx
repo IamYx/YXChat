@@ -51,6 +51,24 @@ function makeInitials(name = '') {
   return name.slice(0, 2).toUpperCase() || 'YX'
 }
 
+function conversationSortTime(item: Conversation) {
+  return item.lastMessage?.createTime || item.updateTime || 0
+}
+
+function sortConversations(list: Conversation[]) {
+  return [...list].sort((a, b) => conversationSortTime(b) - conversationSortTime(a))
+}
+
+function mergeConversation(existing: Conversation | undefined, incoming: Conversation) {
+  const lastMessage = incoming.lastMessage || existing?.lastMessage
+  return {
+    ...existing,
+    ...incoming,
+    lastMessage,
+    updateTime: lastMessage?.createTime || incoming.updateTime || existing?.updateTime || 0
+  }
+}
+
 function renderMessageBody(msg: ChatMessage) {
   if (msg.messageKind === 'image') {
     return (
@@ -142,8 +160,8 @@ export default function App() {
     setConversations((old) => {
       const byId = new Map<string, Conversation>()
       old.forEach((item) => byId.set(item.conversationId, item))
-      list.forEach((item) => byId.set(item.conversationId, item))
-      return Array.from(byId.values()).sort((a, b) => (b.updateTime || 0) - (a.updateTime || 0))
+      list.forEach((item) => byId.set(item.conversationId, mergeConversation(byId.get(item.conversationId), item)))
+      return sortConversations(Array.from(byId.values()))
     })
     if (selectFirst && list[0]?.conversationId) setActiveConversationId(list[0].conversationId)
   }
@@ -173,8 +191,8 @@ export default function App() {
         onConversationChanged: (changed) => {
           setConversations((old) => {
             const byId = new Map(old.map((item) => [item.conversationId, item]))
-            changed.forEach((item) => byId.set(item.conversationId, item))
-            return Array.from(byId.values()).sort((a, b) => (b.updateTime || 0) - (a.updateTime || 0))
+            changed.forEach((item) => byId.set(item.conversationId, mergeConversation(byId.get(item.conversationId), item)))
+            return sortConversations(Array.from(byId.values()))
           })
         }
       })
@@ -224,7 +242,7 @@ export default function App() {
     const conversationId = makeP2PConversationId(accid)
     const exists = conversations.some((item) => item.conversationId === conversationId)
     if (!exists) {
-      setConversations((old) => [{ conversationId, name: accid, updateTime: Date.now() }, ...old])
+      setConversations((old) => [{ conversationId, name: accid, updateTime: 0 }, ...old])
     }
     setStartChatAccid('')
     await openConversation(conversationId)
