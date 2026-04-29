@@ -93,7 +93,7 @@ export async function loadNimSdk(version = DEFAULT_SDK_VERSION) {
       await loadScript(url)
       const sdk = window.NIM?.default || window.NIM
       if (sdk?.getInstance) {
-        loadedSdkVersion = sdk.sdkVersion || targetVersion
+        loadedSdkVersion = normalizeSdkVersion(sdk.sdkVersionFormat || sdk.sdkVersion || targetVersion, targetVersion)
         loadedSdkSource = url
         return sdk
       }
@@ -102,6 +102,19 @@ export async function loadNimSdk(version = DEFAULT_SDK_VERSION) {
     }
   }
   throw lastError || new Error('无法加载 NIMSDK')
+}
+
+function normalizeSdkVersion(value: unknown, fallback: string) {
+  const raw = String(value || '').trim()
+  if (!raw) return fallback
+  if (raw.includes('.')) return raw
+  if (/^\d{6}$/.test(raw)) {
+    const major = raw.slice(0, 2)
+    const minor = String(Number(raw.slice(2, 4)))
+    const patch = String(Number(raw.slice(4, 6)))
+    return `${major}.${minor}.${patch}`
+  }
+  return fallback
 }
 
 export function getLoadedSdkVersion() {

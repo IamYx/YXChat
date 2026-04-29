@@ -114,6 +114,12 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, activeConversationId])
 
+  useEffect(() => {
+    if (!notice || !loggedIn) return
+    const timer = window.setTimeout(() => setNotice(''), 3200)
+    return () => window.clearTimeout(timer)
+  }, [notice, loggedIn])
+
   const activeConversation = useMemo(
     () => conversations.find((item) => item.conversationId === activeConversationId),
     [conversations, activeConversationId]
@@ -160,7 +166,7 @@ export default function App() {
       const version = getLoadedSdkVersion() || form.sdkVersion
       setSdkInfo({ version, source: getLoadedSdkSource() })
       setLoggedIn(true)
-      setNotice(`登录成功。NIMSDK ${version} 已加载，开始同步会话、消息和好友关系。`)
+      setNotice('')
       await Promise.all([refreshConversations(true), refreshContacts()])
     } catch (err: any) {
       setNotice(err?.message || `登录失败：${err?.code || '未知错误'}`)
